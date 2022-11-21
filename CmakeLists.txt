@@ -1,0 +1,4 @@
+﻿cmake_minimum_required (VERSION 3.14)
+project(UsbPlugin)
+ 
+message("${CMAKE_CXX_COMPILER_ID}")
