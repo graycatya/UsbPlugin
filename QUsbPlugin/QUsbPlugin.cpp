@@ -9,10 +9,10 @@ libusb_device_handle *handle = NULL;
 
 QUsbPlugin* QUsbPlugin::_instance = nullptr;
 std::mutex* QUsbPlugin::m_pMutex = new std::mutex;
-std::thread* QUsbPlugin::m_pNotplug_thread = nullptr;
-bool QUsbPlugin::m_bNotplugThreadStop = true;
+std::thread* QUsbPlugin::m_pHotplug_thread = nullptr;
+bool QUsbPlugin::m_bHotplugThreadStop = true;
 
-int verbose = 0;
+int verbose = 1;
 
 static void print_endpoint_comp(const struct libusb_ss_endpoint_companion_descriptor *ep_comp)
 {
@@ -158,6 +158,7 @@ static void print_device(libusb_device *dev, libusb_device_handle *handle)
     const char *speed;
     int ret;
     uint8_t i;
+    uint8_t port_number;
 
     switch (libusb_get_device_speed(dev)) {
     case LIBUSB_SPEED_LOW:		speed = "1.5M"; break;
@@ -173,9 +174,9 @@ static void print_device(libusb_device *dev, libusb_device_handle *handle)
         fprintf(stderr, "failed to get device descriptor");
         return;
     }
-
-    printf("Dev (bus %u, device %u): %04X - %04X speed: %s\n",
-           libusb_get_bus_number(dev), libusb_get_device_address(dev),
+    port_number = libusb_get_port_number(dev);
+    printf("Dev (bus %u, port_number %d, device %u): %04X - %04X speed: %s\n",
+           libusb_get_bus_number(dev), port_number, libusb_get_device_address(dev),
            desc.idVendor, desc.idProduct, speed);
 
     if (!handle)
@@ -194,7 +195,7 @@ static void print_device(libusb_device *dev, libusb_device_handle *handle)
                 printf("  Product:                   %s\n", (char *)string);
         }
 
-        if (desc.iSerialNumber && verbose) {
+        if (desc.iSerialNumber) {
             ret = libusb_get_string_descriptor_ascii(handle, desc.iSerialNumber, string, sizeof(string));
             if (ret > 0)
                 printf("  Serial Number:             %s\n", (char *)string);
@@ -250,6 +251,32 @@ int QUsbPlugin::Deregister_Hotplug()
     return 0;
 }
 
+int QUsbPlugin::GetHotplug_SleepMs()
+{
+    return m_nHotplug_sleepMs;
+}
+
+void QUsbPlugin::Register_Hotplug_Callback(std::function<void (std::list<Usb_Device>, std::list<Usb_Device>)> callback)
+{
+    if(m_pHotplug_callback == nullptr)
+    {
+        m_pHotplug_callback = callback;
+    }
+}
+
+void QUsbPlugin::Deregister_Hotplug_Callback()
+{
+    if(m_pHotplug_callback)
+    {
+        m_pHotplug_callback = nullptr;
+    }
+}
+
+void QUsbPlugin::SetHotplug_SleepMs(int ms)
+{
+    m_nHotplug_sleepMs = ms;
+}
+
 QUsbPlugin::QUsbPlugin()
 {
     int rc = libusb_init(reinterpret_cast<libusb_context**>(ctx));
@@ -259,11 +286,29 @@ QUsbPlugin::QUsbPlugin()
         std::cout.flush();
         return;
     }
+    m_nHotplug_sleepMs = 1000;
+    m_pUsb_devices.clear();
+    Init_Device_List();
 }
 
 QUsbPlugin::~QUsbPlugin()
 {
     libusb_exit(reinterpret_cast<libusb_context*>(ctx));
+}
+
+void QUsbPlugin::Init_Device_List()
+{
+    libusb_device **devs;
+    ssize_t cnt;
+    cnt = libusb_get_device_list(reinterpret_cast<libusb_context*>(ctx), &devs);
+    if (cnt < 0) {
+        libusb_exit(NULL);
+        return;
+    }
+    for (int i = 0; devs[i]; i++)
+        _instance->Add_Device(static_cast<libusb_device*>(devs[i]), NULL, m_pUsb_devices);
+
+    libusb_free_device_list(devs, 1);
 }
 
 void QUsbPlugin::Register_LibUsb_Hotplug()
@@ -273,9 +318,9 @@ void QUsbPlugin::Register_LibUsb_Hotplug()
 
 void QUsbPlugin::Register_Thread_Hotplug()
 {
-    m_bNotplugThreadStop = false;
-    m_pNotplug_thread = new std::thread([]{
-         while(!m_bNotplugThreadStop)
+    m_bHotplugThreadStop = false;
+    m_pHotplug_thread = new std::thread([]{
+         while(!m_bHotplugThreadStop)
          {
              libusb_device **devs;
              ssize_t cnt;
@@ -284,13 +329,12 @@ void QUsbPlugin::Register_Thread_Hotplug()
                  libusb_exit(NULL);
                  return 1;
              }
-
+             std::map<std::string, Usb_Device> devices;
              for (int i = 0; devs[i]; i++)
-                 print_device(devs[i], NULL);
-
+                 _instance->Add_Device(static_cast<libusb_device*>(devs[i]), NULL, devices);
              libusb_free_device_list(devs, 1);
-             std::cout << std::endl;
-             std::this_thread::sleep_for(std::chrono::milliseconds(1000));//睡眠1000毫秒
+             _instance->Compare_Devices(_instance->m_pUsb_devices, devices);
+             std::this_thread::sleep_for(std::chrono::milliseconds(_instance->m_nHotplug_sleepMs));
          }
     });
 }
@@ -302,12 +346,77 @@ void QUsbPlugin::Deregister_LibUsb_Hotplug()
 
 void QUsbPlugin::Deregister_Thread_Hotplug()
 {
-    if(m_pNotplug_thread != nullptr)
+    if(m_pHotplug_thread != nullptr)
     {
-        m_bNotplugThreadStop = true;
-        m_pNotplug_thread->join();
-        delete m_pNotplug_thread;
-        m_pNotplug_thread = nullptr;
+        m_bHotplugThreadStop = true;
+        m_pHotplug_thread->join();
+        delete m_pHotplug_thread;
+        m_pHotplug_thread = nullptr;
     }
 
+}
+
+void QUsbPlugin::Add_Device(void *dev, void *handle, std::map<std::string, Usb_Device> &devices)
+{
+    struct libusb_device_descriptor desc;
+    libusb_device* t_dev = static_cast<libusb_device*>(dev);
+    libusb_device_handle * t_dev_handle = static_cast<libusb_device_handle*>(handle);
+
+    Usb_Device usbdevice;
+    int ret = libusb_get_device_descriptor(t_dev, &desc);
+    if (ret < 0) {
+        return;
+    }
+    usbdevice.speed = libusb_get_device_speed(t_dev);
+    usbdevice.port_number = libusb_get_port_number(t_dev);
+    usbdevice.device_address = libusb_get_device_address(t_dev);
+    usbdevice.bus_number = libusb_get_bus_number(t_dev);
+    usbdevice.vid = desc.idVendor;
+    usbdevice.pid = desc.idProduct;
+    devices[usbdevice.get_device_key()] = usbdevice;
+}
+
+void QUsbPlugin::Compare_Devices(std::map<std::string, Usb_Device> &original, std::map<std::string, Usb_Device> &current)
+{
+    std::map<std::string, Usb_Device> t_original = original;
+    std::map<std::string, Usb_Device> t_current = current;
+    std::list<Usb_Device> adds;
+    std::list<Usb_Device> dels;
+
+    std::list<std::string> delkeys;
+    if(t_original.size() < t_current.size())
+    {
+        for(auto it = t_original.begin(); it != t_original.end(); ++it)
+        {
+            if(t_current.count(it->first) > 0)
+            {
+                delkeys.push_back(it->first);
+            }
+        }
+    } else {
+        for(auto it = t_current.begin(); it != t_current.end(); ++it)
+        {
+            if(t_current.count(it->first) > 0)
+            {
+                delkeys.push_back(it->first);
+            }
+        }
+    }
+    for(auto it = delkeys.begin(); it != delkeys.end(); ++it)
+    {
+        t_original.erase(it->data());
+        t_current.erase(it->data());
+    }
+    for (auto it = t_original.begin(); it != t_original.end() ; ++it) {
+        dels.push_back(it->second);
+    }
+    for (auto it = t_current.begin(); it != t_current.end() ; ++it) {
+        adds.push_back(it->second);
+    }
+    if(m_pHotplug_callback)
+    {
+        m_pHotplug_callback(adds, dels);
+    }
+    original.clear();
+    original = current;
 }
