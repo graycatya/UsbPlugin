@@ -1,4 +1,4 @@
-#include "QUsbPlugin.h"
+﻿#include "QUsbPlugin.h"
 
 #include "libusb.h"
 #include <iostream>
@@ -290,7 +290,7 @@ void QUsbPlugin::Register_Thread_Hotplug()
 
              libusb_free_device_list(devs, 1);
              std::cout << std::endl;
-             std::this_thread::sleep_for(std::chrono::milliseconds(5000));//睡眠1000毫秒
+             std::this_thread::sleep_for(std::chrono::milliseconds(1000));//睡眠1000毫秒
          }
     });
 }

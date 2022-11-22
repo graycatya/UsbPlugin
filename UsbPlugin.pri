@@ -14,7 +14,19 @@
 
 # DEFINES += IS_ANDROID
 
- DEFINES += IS_MINGW
+# DEFINES += IS_MINGW
+
+win32 {
+
+equals(QMAKE_CC, "gcc") {
+DEFINES += IS_MINGW
+}
+
+}
+
+!win32 {
+DEFINES += PLATFORM_POSIX
+}
 
 INCLUDEPATH += $$PWD
 INCLUDEPATH += $$PWD/libusb

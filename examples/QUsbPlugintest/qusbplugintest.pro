@@ -13,6 +13,8 @@ Debug:RCC_DIR = debug/.rcc
 
 include($$PWD/../../QUsbPlugin/QUsbPlugin.pri)
 
+
+
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
