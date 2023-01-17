@@ -1,4 +1,4 @@
-
+QT += core
 TARGET = qusbplugintest
 
 Release:DESTDIR = release

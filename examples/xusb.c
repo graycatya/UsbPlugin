@@ -1,4 +1,4 @@
-/*
+﻿/*
  * xusb: Generic USB test program
  * Copyright © 2009-2012 Pete Batard <pete@akeo.ie>
  * Contributions to Mass Storage by Alan Stern.
@@ -620,7 +620,7 @@ static int test_hid(libusb_device_handle *handle, uint8_t endpoint_in)
 		printf("   Failed\n");
 		return -1;
 	}
-	display_buffer_hex(hid_report_descriptor, descriptor_size);
+    display_buffer_hex(hid_report_descriptor, descriptor_size);
 	if ((binary_dump) && ((fd = fopen(binary_name, "w")) != NULL)) {
 		if (fwrite(hid_report_descriptor, 1, descriptor_size, fd) != (size_t)descriptor_size) {
 			printf("   Error writing descriptor to file\n");
@@ -628,7 +628,7 @@ static int test_hid(libusb_device_handle *handle, uint8_t endpoint_in)
 		fclose(fd);
 	}
 
-	size = get_hid_record_size(hid_report_descriptor, descriptor_size, HID_REPORT_TYPE_FEATURE);
+    size = get_hid_record_size(hid_report_descriptor, descriptor_size, HID_REPORT_TYPE_FEATURE);
 	if (size <= 0) {
 		printf("\nSkipping Feature Report readout (None detected)\n");
 	} else {
@@ -945,7 +945,7 @@ static int test_device(uint16_t vid, uint16_t pid)
 	} else {
 		printf(" no descriptor\n");
 	}
-
+    test_mode = USE_HID;
 	switch(test_mode) {
 	case USE_PS3:
 		CALL_CHECK_CLOSE(display_ps3_status(handle), handle);
@@ -979,6 +979,10 @@ static int test_device(uint16_t vid, uint16_t pid)
 
 int main(int argc, char** argv)
 {
+    argc = 2;
+    argv[0] = "-d";
+    //0000 - 7777
+    argv[1] = "0x0000:0x7777";
 	static char debug_env_str[] = "LIBUSB_DEBUG=4";	// LIBUSB_LOG_LEVEL_DEBUG
 	bool show_help = false;
 	bool debug_mode = false;
@@ -1102,7 +1106,7 @@ int main(int argc, char** argv)
 		printf("If only the vid:pid is provided, xusb attempts to run the most appropriate test\n");
 		return 0;
 	}
-
+    fflush(stdout);
 	// xusb is commonly used as a debug tool, so it's convenient to have debug output during libusb_init(),
 	// but since we can't call on libusb_set_option() before libusb_init(), we use the env variable method
 	old_dbg_str = getenv("LIBUSB_DEBUG");
@@ -1116,7 +1120,7 @@ int main(int argc, char** argv)
 	r = libusb_init(NULL);
 	if (r < 0)
 		return r;
-
+    fflush(stdout);
 	// If not set externally, and no debug option was given, use info log level
 	if ((old_dbg_str == NULL) && (!debug_mode))
 		libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_INFO);
@@ -1125,9 +1129,9 @@ int main(int argc, char** argv)
 		if (r < 0)
 			printf("Invalid or unsupported locale '%s': %s\n", error_lang, libusb_strerror((enum libusb_error)r));
 	}
-
+    fflush(stdout);
 	test_device(VID, PID);
-
+    fflush(stdout);
 	libusb_exit(NULL);
 
 	if (debug_mode) {
